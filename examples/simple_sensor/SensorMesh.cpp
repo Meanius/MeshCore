@@ -456,6 +456,25 @@ void SensorMesh::handleCommand(ClientInfo* from, uint32_t sender_timestamp, char
     command += 3;
   }
 
+#ifdef PIR_PIN
+  // "pir on" / "pir off" / "pir": subscribe/unsubscribe the logged-in sender to motion alerts (sent as HIGH_PRI)
+  if (strcmp(command, "pir on") == 0 || strcmp(command, "pir off") == 0 || strcmp(command, "pir") == 0) {
+    if (from == NULL) {
+      strcpy(reply, "Err - only from a logged-in client");
+    } else {
+      if (strcmp(command, "pir on") == 0) {
+        from->permissions |= (PERM_RECV_ALERTS_HI | PERM_RECV_ALERTS_LO);
+        dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY);   // trigger acl.save()
+      } else if (strcmp(command, "pir off") == 0) {
+        from->permissions &= ~(PERM_RECV_ALERTS_HI | PERM_RECV_ALERTS_LO);
+        dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY);
+      }
+      strcpy(reply, (from->permissions & PERM_RECV_ALERTS_HI) ? "PIR alerts: on" : "PIR alerts: off");
+    }
+    return;
+  }
+#endif
+
   // first, see if this is a custom-handled CLI command (ie. in main.cpp)
   if (handleCustomCommand(sender_timestamp, command, reply)) {
     return;   // command has been handled
