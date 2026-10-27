@@ -1,0 +1,25 @@
+name: PIR Sensor Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [pir-sensor]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone Repo
+        uses: actions/checkout@v6
+
+      - name: Setup Build Environment
+        uses: ./.github/actions/setup-build-environment
+
+      - name: Build Firmware
+        run: /usr/bin/env bash build.sh build-firmware Xiao_S3_WIO_pir_sensor
+
+      - name: Upload Workflow Artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: Xiao_S3_WIO_pir_sensor
+          path: out

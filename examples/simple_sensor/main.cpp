@@ -1,5 +1,25 @@
 #include "SensorMesh.h"
 
+#ifdef PIR_PIN
+  // PIR motion sensor: the pin goes HIGH on motion. The PIRMINI-3 holds the output only ~2 s,
+  // far shorter than SENSOR_READ_INTERVAL_SECS, so the edge is latched by an interrupt.
+  #ifndef PIR_ALERT_INTERVAL_SECS
+    #define PIR_ALERT_INTERVAL_SECS  60     // minimum gap between two motion alerts
+  #endif
+  #ifndef PIR_WARMUP_SECS
+    #define PIR_WARMUP_SECS  30             // PIR output is unreliable right after power-on
+  #endif
+  #ifndef PIR_ALERT_TEXT
+    #define PIR_ALERT_TEXT  "Mozgás érzékelve!"
+  #endif
+
+  static volatile bool pir_motion = false;
+
+  static void IRAM_ATTR onPirRising() {
+    pir_motion = true;
+  }
+#endif
+
 #ifdef DISPLAY_CLASS
   #include "UITask.h"
   static UITask ui_task(display);
@@ -16,6 +36,33 @@ public:
 protected:
   /* ========================== custom logic here ========================== */
   Trigger low_batt, critical_batt;
+#ifdef PIR_PIN
+  Trigger motion;
+  unsigned long last_motion_alert = 0;
+  bool motion_alerted = false;
+
+public:
+  void beginPir() {
+    pinMode(PIR_PIN, INPUT_PULLDOWN);
+    attachInterrupt(digitalPinToInterrupt(PIR_PIN), onPirRising, RISING);
+  }
+
+  void loopPir() {
+    if (!pir_motion) return;
+    pir_motion = false;
+
+    unsigned long now = millis();
+    if (now < PIR_WARMUP_SECS * 1000UL) return;   // ignore power-on noise
+    if (motion_alerted && now - last_motion_alert < PIR_ALERT_INTERVAL_SECS * 1000UL) return;   // rate limit
+
+    alertIf(false, motion, HIGH_PRI_ALERT, PIR_ALERT_TEXT);   // re-arm: a finished alert stays 'triggered' until cleared
+    alertIf(true, motion, HIGH_PRI_ALERT, PIR_ALERT_TEXT);    // queue alert: direct msg to every client with alert permission
+    last_motion_alert = now;
+    motion_alerted = true;
+  }
+
+protected:
+#endif
   TimeSeriesData  battery_data;
 
   void onSensorDataRead() override {
@@ -108,6 +155,10 @@ void setup() {
 
   sensors.begin();
 
+#ifdef PIR_PIN
+  the_mesh.beginPir();
+#endif
+
   the_mesh.begin(fs);
 
 #ifdef DISPLAY_CLASS
@@ -155,6 +206,9 @@ void loop() {
 
   board.loop();   // let the board feed its watchdog, run periodic housekeeping
 
+#ifdef PIR_PIN
+  the_mesh.loopPir();
+#endif
   the_mesh.loop();
   sensors.loop();
 #ifdef DISPLAY_CLASS
