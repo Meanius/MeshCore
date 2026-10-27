@@ -16,6 +16,8 @@ jobs:
         uses: ./.github/actions/setup-build-environment
 
       - name: Build Firmware
+        env:
+          FIRMWARE_VERSION: v1.18.0-pir
         run: /usr/bin/env bash build.sh build-firmware Xiao_S3_WIO_pir_sensor
 
       - name: Upload Workflow Artifacts
