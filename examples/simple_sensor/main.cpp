@@ -17,9 +17,11 @@
   #define PIR_SUSPEND_MAX_SECS  86400       // upper bound for the 'suspend' CLI value
 
   static volatile bool pir_motion = false;
+  static volatile uint32_t pir_edges = 0;   // rising edges seen since boot (diagnostics)
 
   static void IRAM_ATTR onPirRising() {
     pir_motion = true;
+    pir_edges++;
   }
 #endif
 
@@ -83,12 +85,23 @@ public:
     pir_motion = false;
 
     unsigned long now = millis();
-    if (now < PIR_WARMUP_SECS * 1000UL) return;   // ignore power-on noise
-    if (motion_alerted && now - last_motion_alert < pir_suspend_secs * 1000UL) return;   // rate limit
+    Serial.printf("PIR edge #%lu: ", (unsigned long)pir_edges);
+    if (now < PIR_WARMUP_SECS * 1000UL) {   // ignore power-on noise
+      Serial.println("ignored (warm-up)");
+      return;
+    }
+    if (motion_alerted && now - last_motion_alert < pir_suspend_secs * 1000UL) {   // rate limit
+      Serial.printf("suppressed (suspend, %lu s left)\n", (unsigned long)((pir_suspend_secs * 1000UL - (now - last_motion_alert)) / 1000));
+      return;
+    }
+    queueMotionAlert();
+    Serial.println("alert queued");
+  }
 
+  void queueMotionAlert() {
     alertIf(false, motion, HIGH_PRI_ALERT, PIR_ALERT_TEXT);   // re-arm: a finished alert stays 'triggered' until cleared
     alertIf(true, motion, HIGH_PRI_ALERT, PIR_ALERT_TEXT);    // queue alert: direct msg to every client with alert permission
-    last_motion_alert = now;
+    last_motion_alert = millis();
     motion_alerted = true;
   }
 
@@ -111,6 +124,16 @@ protected:
 
   bool handleCustomCommand(uint32_t sender_timestamp, char* command, char* reply) override {
 #ifdef PIR_PIN
+    // diagnostics: "pir pin" reads the input, "pir test" queues an alert without motion
+    if (strcmp(command, "pir pin") == 0) {
+      sprintf(reply, "PIR pin: %s, edges: %lu", digitalRead(PIR_PIN) ? "HIGH" : "LOW", (unsigned long)pir_edges);
+      return true;
+    }
+    if (strcmp(command, "pir test") == 0) {
+      queueMotionAlert();
+      strcpy(reply, "PIR test alert queued");
+      return true;
+    }
     // "suspend" shows, "suspend {secs}" sets the minimum gap between two motion alerts (persisted)
     if (strcmp(command, "suspend") == 0) {
       sprintf(reply, "PIR suspend: %lu s", (unsigned long)pir_suspend_secs);
