@@ -85,6 +85,7 @@ public:
   float getTelemValue(uint8_t channel, uint8_t type);
 
   void sendFloodScoped(const TransportKey& scope, mesh::Packet* pkt, uint32_t delay_millis, uint8_t path_hash_size);
+  bool sendChannelText(const mesh::GroupChannel& channel, const char* text);   // group text as "<node name>: <text>"
   void sendFloodReply(mesh::Packet* packet, unsigned long delay_millis, uint8_t path_hash_size);
 
 protected:

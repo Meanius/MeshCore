@@ -259,6 +259,22 @@ mesh::Packet* SensorMesh::createSelfAdvert() {
   return createAdvert(self_id, app_data, app_data_len);
 }
 
+bool SensorMesh::sendChannelText(const mesh::GroupChannel& channel, const char* text) {
+  // same layout as BaseChatMesh::sendGroupMessage: timestamp, TXT_TYPE_PLAIN, "<sender>: <msg>"
+  uint8_t temp[5 + MAX_PACKET_PAYLOAD];
+  uint32_t timestamp = getRTCClock()->getCurrentTimeUnique();
+  memcpy(temp, &timestamp, 4);
+  temp[4] = 0;  // TXT_TYPE_PLAIN
+  int len = snprintf((char *) &temp[5], MAX_PACKET_PAYLOAD - 32, "%s: %s", _prefs.node_name, text);
+  if (len < 0) return false;
+  if (len > MAX_PACKET_PAYLOAD - 33) len = MAX_PACKET_PAYLOAD - 33;
+
+  auto pkt = createGroupDatagram(PAYLOAD_TYPE_GRP_TXT, channel, temp, 5 + len);
+  if (pkt == NULL) return false;
+  sendFloodScoped(default_scope, pkt, 0, _prefs.path_hash_mode + 1);
+  return true;
+}
+
 void SensorMesh::sendAlert(const ClientInfo* c, Trigger* t) {
   int text_len = strlen(t->text);
 
@@ -389,6 +405,10 @@ uint8_t SensorMesh::handleLoginReq(const mesh::Identity& sender, const uint8_t* 
     }
 
     MESH_DEBUG_PRINTLN("Login success!");
+#ifdef PIR_PIN
+    // no battery-backed RTC: after a power cycle the clock restarts at RTC_TIME_MIN, so take the admin's time
+    if (sender_timestamp > getRTCClock()->getCurrentTime()) getRTCClock()->setCurrentTime(sender_timestamp + 1);
+#endif
     client->last_timestamp = sender_timestamp;
     client->last_activity = getRTCClock()->getCurrentTime();
     client->permissions |= PERM_ACL_ADMIN;
