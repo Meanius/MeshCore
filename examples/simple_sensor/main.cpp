@@ -76,7 +76,9 @@ public:
   void beginPir(FILESYSTEM* fs) {
     pir_fs = fs;
     loadPirSuspend();
-    pinMode(PIR_PIN, INPUT_PULLDOWN);
+    // plain INPUT, no pull-down: the PIRMINI-3 output is weak (measured 2026-10-28: 3.01 V unloaded,
+    // 1.66 V with the ~45 kOhm internal pull-down, below the ESP32-S3 HIGH threshold); it drives low by itself
+    pinMode(PIR_PIN, INPUT);
     attachInterrupt(digitalPinToInterrupt(PIR_PIN), onPirRising, RISING);
   }
 
