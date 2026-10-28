@@ -13,6 +13,9 @@
     #define PIR_ALERT_TEXT  "Mozgás érzékelve!"
   #endif
 
+  #define PIR_SUSPEND_FILE  "/pir_suspend"
+  #define PIR_SUSPEND_MAX_SECS  86400       // upper bound for the 'suspend' CLI value
+
   static volatile bool pir_motion = false;
 
   static void IRAM_ATTR onPirRising() {
@@ -40,9 +43,37 @@ protected:
   Trigger motion;
   unsigned long last_motion_alert = 0;
   bool motion_alerted = false;
+  uint32_t pir_suspend_secs = PIR_ALERT_INTERVAL_SECS;   // minimum gap between two alerts, set by 'suspend'
+  FILESYSTEM* pir_fs = NULL;
+
+  void loadPirSuspend() {
+  #if defined(ESP32)
+    if (pir_fs == NULL || !pir_fs->exists(PIR_SUSPEND_FILE)) return;
+    File f = pir_fs->open(PIR_SUSPEND_FILE, "r");
+    if (!f) return;
+    uint32_t v;
+    if (f.read((uint8_t *)&v, sizeof(v)) == sizeof(v) && v <= PIR_SUSPEND_MAX_SECS) pir_suspend_secs = v;
+    f.close();
+  #endif
+  }
+
+  bool savePirSuspend() {
+  #if defined(ESP32)
+    if (pir_fs == NULL) return false;
+    File f = pir_fs->open(PIR_SUSPEND_FILE, "w");
+    if (!f) return false;
+    bool ok = f.write((const uint8_t *)&pir_suspend_secs, sizeof(pir_suspend_secs)) == sizeof(pir_suspend_secs);
+    f.close();
+    return ok;
+  #else
+    return false;   // no persistence on this platform: the value lasts until reboot
+  #endif
+  }
 
 public:
-  void beginPir() {
+  void beginPir(FILESYSTEM* fs) {
+    pir_fs = fs;
+    loadPirSuspend();
     pinMode(PIR_PIN, INPUT_PULLDOWN);
     attachInterrupt(digitalPinToInterrupt(PIR_PIN), onPirRising, RISING);
   }
@@ -53,7 +84,7 @@ public:
 
     unsigned long now = millis();
     if (now < PIR_WARMUP_SECS * 1000UL) return;   // ignore power-on noise
-    if (motion_alerted && now - last_motion_alert < PIR_ALERT_INTERVAL_SECS * 1000UL) return;   // rate limit
+    if (motion_alerted && now - last_motion_alert < pir_suspend_secs * 1000UL) return;   // rate limit
 
     alertIf(false, motion, HIGH_PRI_ALERT, PIR_ALERT_TEXT);   // re-arm: a finished alert stays 'triggered' until cleared
     alertIf(true, motion, HIGH_PRI_ALERT, PIR_ALERT_TEXT);    // queue alert: direct msg to every client with alert permission
@@ -79,6 +110,24 @@ protected:
   }
 
   bool handleCustomCommand(uint32_t sender_timestamp, char* command, char* reply) override {
+#ifdef PIR_PIN
+    // "suspend" shows, "suspend {secs}" sets the minimum gap between two motion alerts (persisted)
+    if (strcmp(command, "suspend") == 0) {
+      sprintf(reply, "PIR suspend: %lu s", (unsigned long)pir_suspend_secs);
+      return true;
+    }
+    if (memcmp(command, "suspend ", 8) == 0) {
+      char* end;
+      unsigned long v = strtoul(&command[8], &end, 10);
+      if (end == &command[8] || *end != 0 || v > PIR_SUSPEND_MAX_SECS) {
+        sprintf(reply, "Err - usage: suspend {0..%d}", PIR_SUSPEND_MAX_SECS);
+      } else {
+        pir_suspend_secs = v;
+        sprintf(reply, savePirSuspend() ? "PIR suspend: %lu s" : "PIR suspend: %lu s (not saved)", v);
+      }
+      return true;
+    }
+#endif
     if (strcmp(command, "magic") == 0) {    // example 'custom' command handling
       strcpy(reply, "**Magic now done**");
       return true;   // handled
@@ -155,11 +204,11 @@ void setup() {
 
   sensors.begin();
 
-#ifdef PIR_PIN
-  the_mesh.beginPir();
-#endif
-
   the_mesh.begin(fs);
+
+#ifdef PIR_PIN
+  the_mesh.beginPir(fs);
+#endif
 
 #ifdef DISPLAY_CLASS
   ui_task.begin(the_mesh.getNodePrefs(), FIRMWARE_BUILD_DATE, FIRMWARE_VERSION);
