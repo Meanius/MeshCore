@@ -1,0 +1,11 @@
+# T-Deck dual boot (Meshtastic + MeshCore): a selector in the factory partition, one app slot per firmware,
+# and one data partition per firmware. Must be the same table in both firmwares and the selector.
+# Name,   Type, SubType,  Offset,   Size,     Flags
+nvs,      data, nvs,      0x9000,   0x5000,
+otadata,  data, ota,      0xe000,   0x2000,
+selector, app,  factory,  0x10000,  0x100000,
+mt_app,   app,  ota_0,    0x110000, 0x400000,
+mc_app,   app,  ota_1,    0x510000, 0x300000,
+mt_fs,    data, spiffs,   0x810000, 0x400000,
+mc_fs,    data, spiffs,   0xC10000, 0x3E0000,
+coredump, data, coredump, 0xFF0000, 0x10000,

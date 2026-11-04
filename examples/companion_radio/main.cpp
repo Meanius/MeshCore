@@ -1,4 +1,11 @@
 #include <Arduino.h>   // needed for PlatformIO
+#if defined(ESP32)
+  #include <esp_ota_ops.h>
+  #include <esp_partition.h>
+  #ifndef MESHCORE_FS_LABEL
+    #define MESHCORE_FS_LABEL NULL   // upstream behaviour: the first spiffs partition
+  #endif
+#endif
 #include <Mesh.h>
 #include "MyMesh.h"
 
@@ -134,6 +141,13 @@ void halt() {
 
 void setup() {
   Serial.begin(115200);
+#if defined(ESP32) && defined(DUAL_BOOT_SELECTOR)
+  // Dual boot with a selector in the factory partition: hand the next boot back to it, so every power-on
+  // offers the choice again. The selector passes a software restart straight through.
+  if (const esp_partition_t* selector = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_FACTORY, NULL)) {
+    esp_ota_set_boot_partition(selector);
+  }
+#endif
   board.begin();
 
 #ifdef HAS_EXTERNAL_WATCHDOG
@@ -178,7 +192,10 @@ void setup() {
   store.begin();
   the_mesh.begin();
 #elif defined(ESP32)
-  SPIFFS.begin(true);
+  // MESHCORE_FS_LABEL: a dual-boot build (LilyGo_TDeck_companion_radio_ble_dualboot) keeps its files in
+  // its own partition. Without a label SPIFFS takes the FIRST spiffs partition, which in the shared
+  // table belongs to Meshtastic, and format-on-failure would wipe it.
+  SPIFFS.begin(true, "/spiffs", 10, MESHCORE_FS_LABEL);
   store.begin();
   the_mesh.begin();
 #else
